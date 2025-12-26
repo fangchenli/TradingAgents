@@ -8,24 +8,26 @@ load_dotenv()
 
 # Create a custom config
 config = DEFAULT_CONFIG.copy()
-config["deep_think_llm"] = "gpt-4o-mini"  # Use a different model
-config["quick_think_llm"] = "gpt-4o-mini"  # Use a different model
-config["max_debate_rounds"] = 1  # Increase debate rounds
+config["deep_think_llm"] = "gpt-4o-mini"
+config["quick_think_llm"] = "gpt-4o-mini"
+config["max_debate_rounds"] = 1
 
-# Configure data vendors (default uses yfinance and alpha_vantage)
+# Configure data vendors - using yfinance (free) and openai for analysis
 config["data_vendors"] = {
-    "core_stock_apis": "yfinance",  # Options: yfinance, alpha_vantage, local
-    "technical_indicators": "yfinance",  # Options: yfinance, alpha_vantage, local
-    "fundamental_data": "alpha_vantage",  # Options: openai, alpha_vantage, local
-    "news_data": "alpha_vantage",  # Options: openai, alpha_vantage, google, local
+    "core_stock_apis": "yfinance",  # Free stock data
+    "technical_indicators": "yfinance",  # Free technical indicators
+    "fundamental_data": "yfinance",  # Use yfinance for fundamentals (free)
+    "news_data": "openai",  # Use OpenAI for news analysis
 }
 
 # Initialize with custom config
 ta = TradingAgentsGraph(debug=True, config=config)
 
-# forward propagate
-_, decision = ta.propagate("NVDA", "2024-05-10")
-print(decision)
+# Forward propagate - analyze NVDA for a recent date
+_, decision = ta.propagate("NVDA", "2024-12-20")
+print(f"\n{'='*50}")
+print(f"Final Decision: {decision}")
+print(f"{'='*50}")
 
 # Memorize mistakes and reflect
-# ta.reflect_and_remember(1000) # parameter is the position returns
+# ta.reflect_and_remember(1000)  # parameter is the position returns

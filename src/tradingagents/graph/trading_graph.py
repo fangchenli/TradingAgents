@@ -99,7 +99,10 @@ class TradingAgentsGraph:
         self.tool_nodes = self._create_tool_nodes()
 
         # Initialize components
-        self.conditional_logic = ConditionalLogic()
+        self.conditional_logic = ConditionalLogic(
+            max_debate_rounds=self.config.get("max_debate_rounds", 1),
+            max_risk_discuss_rounds=self.config.get("max_risk_discuss_rounds", 1),
+        )
         self.graph_setup = GraphSetup(
             self.quick_thinking_llm,
             self.deep_thinking_llm,
@@ -172,15 +175,28 @@ class TradingAgentsGraph:
 
         if self.debug:
             # Debug mode with tracing
-            trace = []
+            # LangGraph stream yields {node_name: state_update} chunks
+            final_state = None
+            seen_messages = set()
             for chunk in self.graph.stream(init_agent_state, **args):
-                if len(chunk["messages"]) == 0:
-                    pass
-                else:
-                    chunk["messages"][-1].pretty_print()
-                    trace.append(chunk)
+                # Each chunk is {node_name: state_update}
+                for _node_name, state_update in chunk.items():
+                    if "messages" in state_update and state_update["messages"]:
+                        # Print new messages (avoid duplicates)
+                        for msg in state_update["messages"]:
+                            msg_id = getattr(msg, "id", None) or id(msg)
+                            if msg_id not in seen_messages:
+                                seen_messages.add(msg_id)
+                                msg.pretty_print()
+                    # Keep track of the latest state update
+                    if final_state is None:
+                        final_state = state_update
+                    else:
+                        final_state.update(state_update)
 
-            final_state = trace[-1]
+            # If streaming didn't work as expected, fall back to invoke
+            if final_state is None:
+                final_state = self.graph.invoke(init_agent_state, **args)
         else:
             # Standard mode without tracing
             final_state = self.graph.invoke(init_agent_state, **args)
