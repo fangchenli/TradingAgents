@@ -4,8 +4,9 @@ env/
 __pycache__/
 .DS_Store
 *.csv
-src/
 eval_results/
 eval_data/
 *.egg-info/
 .env
+dist/
+build/
