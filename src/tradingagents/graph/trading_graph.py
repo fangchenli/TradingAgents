@@ -1,5 +1,7 @@
 # TradingAgents/graph/trading_graph.py
 
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
@@ -23,8 +25,8 @@ from tradingagents.agents.utils.agent_utils import (
     get_stock_data,
 )
 from tradingagents.agents.utils.memory import FinancialSituationMemory
+from tradingagents.config import DEFAULT_CONFIG, TradingAgentsConfig
 from tradingagents.dataflows.config import set_config
-from tradingagents.default_config import DEFAULT_CONFIG
 
 from .conditional_logic import ConditionalLogic
 from .propagation import Propagator
@@ -40,19 +42,29 @@ class TradingAgentsGraph:
         self,
         selected_analysts: list[str] | None = None,
         debug: bool = False,
-        config: dict[str, Any] | None = None,
+        config: TradingAgentsConfig | dict[str, Any] | None = None,
     ):
         """Initialize the trading agents graph and components.
 
         Args:
             selected_analysts: List of analyst types to include
             debug: Whether to run in debug mode
-            config: Configuration dictionary. If None, uses default config
+            config: Configuration (TradingAgentsConfig, dict, or None for defaults)
         """
         if selected_analysts is None:
             selected_analysts = ["market", "social", "news", "fundamentals"]
         self.debug = debug
-        self.config = config or DEFAULT_CONFIG
+
+        # Handle config: accept both Pydantic model and dict
+        if config is None:
+            self._config = DEFAULT_CONFIG
+        elif isinstance(config, TradingAgentsConfig):
+            self._config = config
+        else:
+            self._config = TradingAgentsConfig.from_dict(config)
+
+        # Convert to dict for backward compatibility with existing code
+        self.config = self._config.to_dict()
 
         # Update the interface's config
         set_config(self.config)
