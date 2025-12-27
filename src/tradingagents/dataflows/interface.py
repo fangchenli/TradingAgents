@@ -1,3 +1,9 @@
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from tradingagents.async_utils import to_async
 from tradingagents.logging import get_logger
 
 from .alpha_vantage import get_balance_sheet as get_alpha_vantage_balance_sheet
@@ -254,4 +260,133 @@ def route_to_vendor(method: str, *args, **kwargs):
         return results[0]
     else:
         # Convert all results to strings and concatenate
+        return "\n".join(str(result) for result in results)
+
+
+async def route_to_vendor_async(method: str, *args, **kwargs) -> Any:
+    """Async version of route_to_vendor.
+
+    Routes method calls to appropriate vendor implementation with fallback support.
+    Sync functions are automatically wrapped with asyncio.to_thread().
+    """
+    category = get_category_for_method(method)
+    vendor_config = get_vendor(category, method)
+
+    # Handle comma-separated vendors
+    primary_vendors = [v.strip() for v in vendor_config.split(",")]
+
+    if method not in VENDOR_METHODS:
+        raise ValueError(f"Method '{method}' not supported")
+
+    # Get all available vendors for this method for fallback
+    all_available_vendors = list(VENDOR_METHODS[method].keys())
+
+    # Create fallback vendor list
+    fallback_vendors = primary_vendors.copy()
+    for vendor in all_available_vendors:
+        if vendor not in fallback_vendors:
+            fallback_vendors.append(vendor)
+
+    logger.debug(
+        "%s (async) - Primary: [%s] | Full fallback order: [%s]",
+        method,
+        " → ".join(primary_vendors),
+        " → ".join(fallback_vendors),
+    )
+
+    results = []
+    vendor_attempt_count = 0
+
+    for vendor in fallback_vendors:
+        if vendor not in VENDOR_METHODS[method]:
+            if vendor in primary_vendors:
+                logger.info(
+                    "Vendor '%s' not supported for method '%s', falling back to next vendor",
+                    vendor,
+                    method,
+                )
+            continue
+
+        vendor_impl = VENDOR_METHODS[method][vendor]
+        is_primary_vendor = vendor in primary_vendors
+        vendor_attempt_count += 1
+
+        vendor_type = "PRIMARY" if is_primary_vendor else "FALLBACK"
+        logger.debug(
+            "Attempting %s vendor '%s' for %s (async, attempt #%d)",
+            vendor_type,
+            vendor,
+            method,
+            vendor_attempt_count,
+        )
+
+        # Handle list of methods for a vendor
+        if isinstance(vendor_impl, list):
+            vendor_methods = [(impl, vendor) for impl in vendor_impl]
+        else:
+            vendor_methods = [(vendor_impl, vendor)]
+
+        # Run methods for this vendor
+        vendor_results = []
+        for impl_func, vendor_name in vendor_methods:
+            try:
+                logger.debug(
+                    "Calling %s from vendor '%s' (async)...", impl_func.__name__, vendor_name
+                )
+
+                # Check if function is already async
+                if asyncio.iscoroutinefunction(impl_func):
+                    result = await impl_func(*args, **kwargs)
+                else:
+                    # Wrap sync function in thread
+                    result = await to_async(impl_func, *args, **kwargs)
+
+                vendor_results.append(result)
+                logger.debug(
+                    "%s from vendor '%s' completed successfully (async)",
+                    impl_func.__name__,
+                    vendor_name,
+                )
+
+            except AlphaVantageRateLimitError as e:
+                if vendor == "alpha_vantage":
+                    logger.warning(
+                        "Alpha Vantage rate limit exceeded, falling back to next available vendor"
+                    )
+                    logger.debug("Rate limit details: %s", e)
+                continue
+            except Exception as e:
+                logger.warning(
+                    "%s from vendor '%s' failed (async): %s", impl_func.__name__, vendor_name, e
+                )
+                continue
+
+        if vendor_results:
+            results.extend(vendor_results)
+            logger.debug(
+                "Vendor '%s' succeeded (async) - Got %d result(s)", vendor, len(vendor_results)
+            )
+
+            if len(primary_vendors) == 1:
+                logger.debug("Stopping after successful vendor '%s' (single-vendor config)", vendor)
+                break
+        else:
+            logger.warning("Vendor '%s' produced no results (async)", vendor)
+
+    if not results:
+        logger.error(
+            "All %d vendor attempts failed for method '%s' (async)", vendor_attempt_count, method
+        )
+        raise RuntimeError(f"All vendor implementations failed for method '{method}'")
+    else:
+        logger.debug(
+            "Method '%s' completed (async) with %d result(s) from %d vendor attempt(s)",
+            method,
+            len(results),
+            vendor_attempt_count,
+        )
+
+    if len(results) == 1:
+        return results[0]
+    else:
         return "\n".join(str(result) for result in results)

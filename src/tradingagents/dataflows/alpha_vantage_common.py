@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 from datetime import datetime
@@ -6,6 +8,7 @@ from io import StringIO
 import pandas as pd
 import requests
 
+from tradingagents.async_utils import get_async_client
 from tradingagents.logging import get_logger
 
 logger = get_logger("dataflows.alpha_vantage")
@@ -92,6 +95,52 @@ def _make_api_request(function_name: str, params: dict) -> dict | str:
                 )
     except json.JSONDecodeError:
         # Response is not JSON (likely CSV data), which is normal
+        pass
+
+    return response_text
+
+
+async def _make_api_request_async(function_name: str, params: dict) -> dict | str:
+    """Async version of API request helper.
+
+    Raises:
+        AlphaVantageRateLimitError: When API rate limit is exceeded
+    """
+    # Create a copy of params to avoid modifying the original
+    api_params = params.copy()
+    api_params.update(
+        {
+            "function": function_name,
+            "apikey": get_api_key(),
+            "source": "trading_agents",
+        }
+    )
+
+    # Handle entitlement parameter if present
+    current_entitlement = globals().get("_current_entitlement")
+    entitlement = api_params.get("entitlement") or current_entitlement
+
+    if entitlement:
+        api_params["entitlement"] = entitlement
+    elif "entitlement" in api_params:
+        api_params.pop("entitlement", None)
+
+    client = await get_async_client()
+    response = await client.get(API_BASE_URL, params=api_params)
+    response.raise_for_status()
+
+    response_text = response.text
+
+    # Check if response is JSON (error responses are typically JSON)
+    try:
+        response_json = json.loads(response_text)
+        if "Information" in response_json:
+            info_message = response_json["Information"]
+            if "rate limit" in info_message.lower() or "api key" in info_message.lower():
+                raise AlphaVantageRateLimitError(
+                    f"Alpha Vantage rate limit exceeded: {info_message}"
+                )
+    except json.JSONDecodeError:
         pass
 
     return response_text

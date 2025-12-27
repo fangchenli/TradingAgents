@@ -275,3 +275,75 @@ class TradingAgentsGraph:
     def process_signal(self, full_signal):
         """Process a signal to extract the core decision."""
         return self.signal_processor.process_signal(full_signal)
+
+    # Async methods
+    async def propagate_async(self, company_name: str, trade_date: str):
+        """Async version: Run the trading agents graph for a company on a specific date.
+
+        This is useful when you want to run multiple analyses concurrently
+        or integrate with async web frameworks.
+        """
+
+        from tradingagents.async_utils import to_async
+
+        self.ticker = company_name
+
+        # Initialize state
+        init_agent_state = self.propagator.create_initial_state(company_name, trade_date)
+        args = self.propagator.get_graph_args()
+
+        # LangGraph's ainvoke for async execution
+        if hasattr(self.graph, "ainvoke"):
+            final_state = await self.graph.ainvoke(init_agent_state, **args)
+        else:
+            # Fallback: run sync invoke in thread pool
+            final_state = await to_async(self.graph.invoke, init_agent_state, **args)
+
+        # Store current state for reflection
+        self.curr_state = final_state
+
+        # Log state (file I/O in thread)
+        await to_async(self._log_state, trade_date, final_state)
+
+        # Return decision and processed signal
+        return final_state, self.process_signal(final_state["final_trade_decision"])
+
+    async def reflect_and_remember_async(self, returns_losses):
+        """Async version: Reflect on decisions and update memory based on returns."""
+        import asyncio
+
+        from tradingagents.async_utils import to_async
+
+        # Run all reflections concurrently
+        await asyncio.gather(
+            to_async(
+                self.reflector.reflect_bull_researcher,
+                self.curr_state,
+                returns_losses,
+                self.bull_memory,
+            ),
+            to_async(
+                self.reflector.reflect_bear_researcher,
+                self.curr_state,
+                returns_losses,
+                self.bear_memory,
+            ),
+            to_async(
+                self.reflector.reflect_trader,
+                self.curr_state,
+                returns_losses,
+                self.trader_memory,
+            ),
+            to_async(
+                self.reflector.reflect_invest_judge,
+                self.curr_state,
+                returns_losses,
+                self.invest_judge_memory,
+            ),
+            to_async(
+                self.reflector.reflect_risk_manager,
+                self.curr_state,
+                returns_losses,
+                self.risk_manager_memory,
+            ),
+        )

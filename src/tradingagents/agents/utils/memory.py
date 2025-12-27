@@ -1,9 +1,14 @@
+from __future__ import annotations
+
+import asyncio
 import logging
 from pathlib import Path
 
 import chromadb
 from chromadb.config import Settings
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
+
+from tradingagents.async_utils import to_async
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +20,7 @@ class FinancialSituationMemory:
         else:
             self.embedding = "text-embedding-3-small"
         self.client = OpenAI(base_url=config["backend_url"])
+        self.async_client = AsyncOpenAI(base_url=config["backend_url"])
         self.name = name
 
         # Use persistent storage if configured
@@ -70,6 +76,68 @@ class FinancialSituationMemory:
         query_embedding = self.get_embedding(current_situation)
 
         results = self.situation_collection.query(
+            query_embeddings=[query_embedding],
+            n_results=n_matches,
+            include=["metadatas", "documents", "distances"],
+        )
+
+        matched_results = []
+        for i in range(len(results["documents"][0])):
+            matched_results.append(
+                {
+                    "matched_situation": results["documents"][0][i],
+                    "recommendation": results["metadatas"][0][i]["recommendation"],
+                    "similarity_score": 1 - results["distances"][0][i],
+                }
+            )
+
+        return matched_results
+
+    # Async methods
+    async def get_embedding_async(self, text: str) -> list[float]:
+        """Async version: Get OpenAI embedding for a text."""
+        response = await self.async_client.embeddings.create(model=self.embedding, input=text)
+        return response.data[0].embedding
+
+    async def add_situations_async(self, situations_and_advice: list[tuple[str, str]]) -> None:
+        """Async version: Add financial situations and their corresponding advice."""
+        situations = []
+        advice = []
+        ids = []
+        embeddings = []
+
+        offset = self.situation_collection.count()
+
+        # Get all embeddings concurrently
+        embedding_tasks = [
+            self.get_embedding_async(situation) for situation, _ in situations_and_advice
+        ]
+        all_embeddings = await asyncio.gather(*embedding_tasks)
+
+        for i, ((situation, recommendation), embedding) in enumerate(
+            zip(situations_and_advice, all_embeddings, strict=True)
+        ):
+            situations.append(situation)
+            advice.append(recommendation)
+            ids.append(str(offset + i))
+            embeddings.append(embedding)
+
+        # ChromaDB operations are sync, run in thread
+        await to_async(
+            self.situation_collection.add,
+            documents=situations,
+            metadatas=[{"recommendation": rec} for rec in advice],
+            embeddings=embeddings,
+            ids=ids,
+        )
+
+    async def get_memories_async(self, current_situation: str, n_matches: int = 1) -> list[dict]:
+        """Async version: Find matching recommendations using OpenAI embeddings."""
+        query_embedding = await self.get_embedding_async(current_situation)
+
+        # ChromaDB query is sync, run in thread
+        results = await to_async(
+            self.situation_collection.query,
             query_embeddings=[query_embedding],
             n_results=n_matches,
             include=["metadatas", "documents", "distances"],
