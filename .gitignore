@@ -10,3 +10,4 @@ eval_data/
 .env
 dist/
 build/
+memory/

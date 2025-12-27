@@ -10,12 +10,13 @@ from __future__ import annotations
 
 from tradingagents.backtesting.backtester import Backtester
 from tradingagents.backtesting.metrics import BacktestMetrics, calculate_metrics
-from tradingagents.backtesting.portfolio import Portfolio, Position, Trade
+from tradingagents.backtesting.portfolio import Portfolio, Position, Signal, Trade
 
 __all__ = [
     "Backtester",
     "Portfolio",
     "Position",
+    "Signal",
     "Trade",
     "BacktestMetrics",
     "calculate_metrics",
