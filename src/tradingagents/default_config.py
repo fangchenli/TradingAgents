@@ -20,6 +20,9 @@ DEFAULT_CONFIG = {
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
+    # Memory settings
+    "memory_persistence": True,  # If True, memories persist to disk between runs
+    "memory_dir": os.getenv("TRADINGAGENTS_MEMORY_DIR", "./memory"),
     # Data vendor configuration
     # Category-level configuration (default for all tools in category)
     "data_vendors": {

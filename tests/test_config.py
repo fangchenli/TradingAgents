@@ -23,6 +23,8 @@ class TestDefaultConfig:
             "max_debate_rounds",
             "max_risk_discuss_rounds",
             "max_recur_limit",
+            "memory_persistence",
+            "memory_dir",
             "data_vendors",
             "tool_vendors",
         ]

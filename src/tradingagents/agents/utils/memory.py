@@ -1,17 +1,40 @@
+import logging
+from pathlib import Path
+
 import chromadb
 from chromadb.config import Settings
 from openai import OpenAI
 
+logger = logging.getLogger(__name__)
+
 
 class FinancialSituationMemory:
-    def __init__(self, name, config):
+    def __init__(self, name: str, config: dict):
         if config["backend_url"] == "http://localhost:11434/v1":
             self.embedding = "nomic-embed-text"
         else:
             self.embedding = "text-embedding-3-small"
         self.client = OpenAI(base_url=config["backend_url"])
-        self.chroma_client = chromadb.Client(Settings(allow_reset=True))
-        self.situation_collection = self.chroma_client.create_collection(name=name)
+        self.name = name
+
+        # Use persistent storage if configured
+        if config.get("memory_persistence", False):
+            memory_dir = Path(config.get("memory_dir", "./memory"))
+            memory_dir.mkdir(parents=True, exist_ok=True)
+            self.chroma_client = chromadb.PersistentClient(
+                path=str(memory_dir),
+                settings=Settings(allow_reset=True, anonymized_telemetry=False),
+            )
+            logger.info(f"Using persistent memory storage at {memory_dir}")
+        else:
+            self.chroma_client = chromadb.Client(Settings(allow_reset=True))
+            logger.info("Using in-memory storage (memories will not persist)")
+
+        # Get or create collection (allows persistence across runs)
+        self.situation_collection = self.chroma_client.get_or_create_collection(name=name)
+        existing_count = self.situation_collection.count()
+        if existing_count > 0:
+            logger.info(f"Loaded {existing_count} existing memories for {name}")
 
     def get_embedding(self, text):
         """Get OpenAI embedding for a text"""
@@ -67,7 +90,11 @@ class FinancialSituationMemory:
 
 if __name__ == "__main__":
     # Example usage
-    matcher = FinancialSituationMemory()
+    example_config = {
+        "backend_url": "https://api.openai.com/v1",
+        "memory_persistence": False,  # Use in-memory for example
+    }
+    matcher = FinancialSituationMemory("example_memory", example_config)
 
     # Example data
     example_data = [
